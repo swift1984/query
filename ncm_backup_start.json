@@ -1,0 +1,18 @@
+{
+   "apiVersion": "v1",
+   "code": 202,
+   "details": {
+      "1469bd9f-c2a1-4e05-baa0-4c0b0ce782a0": {
+         "helm_version": 3,
+         "name": "cmdb-norc-doc-norc",
+         "namespace": "doc-norc",
+         "request": "backupHelmRelease",
+         "timestamp": "20230713032421"
+      }
+   },
+   "kind": "Status",
+   "message": "backupHelmRelease task = 1469bd9f-c2a1-4e05-baa0-4c0b0ce782a0 is on!",
+   "metadata": {},
+   "reason": "",
+   "status": "Success"
+}
