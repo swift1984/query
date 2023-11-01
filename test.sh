@@ -22,10 +22,24 @@ G_LOG_DATE_FORMAT='+%Y%m%d_%H%M%S'
 
 do_backup() {
    local l_app_name=$1
+   local l_max_attempt=5 l_num_attempt=1 l_success=false
 
    info "$(date "$G_LOG_DATE_FORMAT") Starting backup"
-   backup_id="$(do_op "backup" "$l_app_name")"
-   info "$(date "$G_LOG_DATE_FORMAT") Backup ID: $backup_id"
+   while [[ $l_success = false ]] && [[ $l_num_attempt -le $l_max_attempt ]]; do
+      if ! backup_id="$(do_op "backup" "$l_app_name")"; then
+         info "Attempt $l_num_attempt failed. Retrying... "
+         l_num_attempt=$(( l_num_attempt + 1 ))
+      else
+         l_success=true
+         break
+      fi
+   done
+
+   if [ $l_success = true ]; then
+      info "$(date "$G_LOG_DATE_FORMAT") Backup ID: $backup_id"
+   else
+      ko "$(date "$G_LOG_DATE_FORMAT") Operation failed after $l_max_attempt attempts"
+   fi
 
    info "$(date "$G_LOG_DATE_FORMAT") Waiting for backup to complete"
    wait_for_op "backup" "$l_app_name" "$backup_id"
@@ -36,6 +50,7 @@ do_backup() {
 # Execute the restore; return restore_id
 # INPUTS:
 #   l_app_name: application name
+#   l_backup_id: backup id for restore
 # ON ERROR:
 #   output the ncm command stderr
 # EXAMPLE:
@@ -43,12 +58,36 @@ do_backup() {
 #######################################
 
 do_restore() {
-   local l_app_name=$1
-   local backup_id=$2
+   local l_app_name=$1 l_backup_id=$2
+   local l_max_attempt=5 l_num_attempt=1 l_success=false
 
-   info "$(date "$G_LOG_DATE_FORMAT") Starting restore of $backup_id"
-   restore_id="$(do_op "restore" "$l_app_name" "$backup_id")"
-   info "$(date "$G_LOG_DATE_FORMAT") Restore ID: $restore_id"
+   while [[ $l_success = false ]] && [[ $l_num_attempt -le $l_max_attempt ]]; do
+      if [ -n "$l_backup_id" ]; then
+         info "$(date "$G_LOG_DATE_FORMAT") Starting restore of $l_backup_id"
+         if ! restore_id="$(do_op "restore" "$l_app_name" "$l_backup_id")"; then
+            info "Attempt $l_num_attempt failed. Retrying... "
+            l_num_attempt=$(( l_num_attempt + 1 ))
+         else
+            l_success=true
+            break
+         fi
+      else
+         info "$(date "$G_LOG_DATE_FORMAT") Starting restore of latest backup"
+         if ! restore_id="$(do_op "restore" "$l_app_name")"; then
+            info "Attempt $l_num_attempt failed. Retrying... "
+            l_num_attempt=$(( l_num_attempt + 1 ))
+         else
+            l_success=true
+            break
+         fi
+      fi
+   done
+
+   if [ $l_success = true ]; then
+      info "$(date "$G_LOG_DATE_FORMAT") Restore ID: $restore_id"
+   else
+      ko "$(date "$G_LOG_DATE_FORMAT") Operation failed after $l_max_attempt attempts"
+   fi
 
    info "$(date "$G_LOG_DATE_FORMAT") Waiting for restore to complete"
    wait_for_op "restore" "$l_app_name" "$restore_id"
@@ -71,29 +110,16 @@ do_restore() {
 #######################################
 do_op() {
    local l_command l_op=$1 l_app_name=$2 l_rid=$3
-   #local l_max_attempt=5 l_num_attempt=1 l_success=false
-   
-   #while [[ $l_success = false ]] && [[ $l_num_attempt -le $l_max_attempt ]]; do
-      if [[ "$#" -eq 3 ]]; then
-         l_command="ncm --raw app "$l_op" --id "$l_app_name" --backup_id "$l_rid" | jq -r '.details | keys[]'"
-      elif [[ "$#" -eq 2 ]]; then
-         l_command="ncm --raw app "$l_op" --id "$l_app_name" | jq -r '.details | keys[]'"
-      else
-         ko "$(date "$G_LOG_DATE_FORMAT") Invalid operation"
-      fi
-      # if [[ $? -eq 0 ]] && [[ -n "$l_id" ]]; then
-      #    l_success=true
-      # else
-      #    info "Attempt $l_num_attempt failed. Retrying... "
-      #    l_num_attempt=$(( l_num_attempt + 1 ))
-      # fi
-   #done
+
+   if [[ "$#" -eq 3 ]]; then
+      l_command="ncm --raw app "$l_op" --id "$l_app_name" --backup_id "$l_rid" | jq -r '.details | keys[]'"
+   elif [[ "$#" -eq 2 ]]; then
+      l_command="ncm --raw app "$l_op" --id "$l_app_name" | jq -r '.details | keys[]'"
+   else
+      ko "$(date "$G_LOG_DATE_FORMAT") Invalid operation"
+   fi
+
    eval "$l_command"
-   # if [ $l_success = true ]; then
-   #    echo "$l_id"
-   # else
-   #    ko "$(date "$G_LOG_DATE_FORMAT") Operation failed after $l_max_attempt attempts"
-   # fi
 }
 
 #######################################
@@ -134,9 +160,8 @@ wait_for_op() {
          ko "$(date "$G_LOG_DATE_FORMAT") Operation failed"
       fi
       
-      #info "$(date "$G_LOG_DATE_FORMAT") $status"
+      info "$(date "$G_LOG_DATE_FORMAT") $status"
    done
-   info "$(date "$G_LOG_DATE_FORMAT") $status"
 }
 
 #######################################
@@ -185,7 +210,7 @@ find_app_pod_name() {
 #   l_app_name
 #   l_action: disable/enable
 # ON ERROR:
-#   output the ncm command stderr
+#   error message
 # EXAMPLE:
 #   change_cron_backup "cmgo-norc" "disable"
 #######################################
@@ -213,7 +238,7 @@ change_cron_backup() {
 # OUTPUT:
 #   BACKUP_ID: backup id in backup history
 # ON ERROR:
-#   output the kubectl command stderr
+#   error message
 # EXAMPLE:
 #   fetch_backup_id "cassandra-norc-ccas-apache" "doc-norc" "-1"
 #######################################
